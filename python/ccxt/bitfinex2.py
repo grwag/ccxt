@@ -56,7 +56,7 @@ class bitfinex2(bitfinex):
                 'fetchOHLCV': True,
                 'fetchOpenOrder': True,
                 'fetchOpenOrders': True,
-                'fetchOrder': None,
+                'fetchOrder': True,
                 'fetchOrderTrades': True,
                 'fetchStatus': True,
                 'fetchTickers': True,
@@ -236,6 +236,7 @@ class bitfinex2(bitfinex):
                         'auth/w/settings/set',
                         'auth/r/settings',
                         'auth/w/settings/del',
+                        'auth/r/summary',
                     ],
                 },
             },
@@ -685,7 +686,50 @@ class bitfinex2(bitfinex):
         return currencyId
 
     def fetch_order(self, id, symbol=None, params={}):
-        raise NotSupported(self.id + ' fetchOrder is not implemented yet')
+        self.load_markets()
+        request = {
+            'order_id': int(id),
+        }
+        response = self.privatePostAuthROrders(self.extend(request, params))
+        return self.parse_order(response[0])
+
+    def fetch_trading_fees(self, params={}):
+        self.load_markets()
+        response = self.privatePostAuthRSummary(params)
+        #
+        #     {
+        #         time: '2019-02-20T15:50:19.152000Z',
+        #         trade_vol_30d: [
+        #             {
+        #                 curr: 'Total(USD)',
+        #                 vol: 0,
+        #                 vol_maker: 0,
+        #                 vol_BFX: 0,
+        #                 vol_BFX_maker: 0,
+        #                 vol_ETHFX: 0,
+        #                 vol_ETHFX_maker: 0
+        #             }
+        #         ],
+        #         fees_funding_30d: {},
+        #         fees_funding_total_30d: 0,
+        #         fees_trading_30d: {},
+        #         fees_trading_total_30d: 0,
+        #         maker_fee: 0.001,
+        #         taker_fee: 0.002
+        #     }
+        #
+
+        summary = {
+            'makerFee': self.safe_number(response[4][0], 0),
+            'derivRebate': self.safe_number(response[4][0], 5),
+            'takerFeeToCrypto': self.safe_number(response[4][1], 0),
+            'takerFeeToStable': self.safe_number(response[4][1], 1),
+            'takerFeeToFiat': self.safe_number(response[4][1], 2),
+            'derivTakerFee': self.safe_number(response[4][1], 5),
+            'leoLev': self.safe_number(response[9], 'leo_lev'),
+            'leoAmountAvg': self.safe_number(response[9], 'leo_amount_avg'),
+        }
+        return summary
 
     def fetch_order_book(self, symbol, limit=None, params={}):
         self.load_markets()
@@ -1537,7 +1581,8 @@ class bitfinex2(bitfinex):
         return response
 
     def nonce(self):
-        return self.milliseconds()
+        # https://docs.bitfinex.com/docs/rest-auth
+        return self.milliseconds() * 1000
 
     def sign(self, path, api='public', method='GET', params={}, headers=None, body=None):
         request = '/' + self.implode_params(path, params)
